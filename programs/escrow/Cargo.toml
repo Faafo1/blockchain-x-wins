@@ -1,0 +1,22 @@
+[package]
+name = "escrow"
+version = "0.1.0"
+description = "Token escrow on Solana: buyer locks funds, released to seller on delivery"
+edition = "2021"
+rust-version = "1.84"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "escrow"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+
+[dependencies]
+anchor-lang = "0.31.1"
+anchor-spl = "0.31.1"

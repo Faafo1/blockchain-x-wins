@@ -1,0 +1,16 @@
+.anchor
+.DS_Store
+target
+node_modules
+dist
+build
+test-ledger
+.yarn
+
+# Never commit wallets or keys
+*.json.key
+*-keypair.json
+id.json
+.env
+.env.*
+target/deploy/*.json
