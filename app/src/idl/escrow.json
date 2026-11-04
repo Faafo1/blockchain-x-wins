@@ -10,8 +10,12 @@
     {
       "name": "create",
       "docs": [
-        "The buyer locks `amount` tokens for `seller`. If the buyer never releases them,",
-        "the buyer can take them back after `deadline` (unix timestamp, seconds)."
+        "The buyer locks `amount` tokens for `seller`.",
+        "",
+        "- `deadline` (unix seconds): after this the buyer can take the tokens back,",
+        "but only when there is no arbiter.",
+        "- `arbiter`: an optional neutral third party who can decide a dispute.",
+        "Pass `Pubkey::default()` (the all-zero key) for no arbiter."
       ],
       "discriminator": [
         24,
@@ -112,6 +116,10 @@
         {
           "name": "deadline",
           "type": "i64"
+        },
+        {
+          "name": "arbiter",
+          "type": "pubkey"
         }
       ]
     },
@@ -120,7 +128,7 @@
       "docs": [
         "Tokens go back to the buyer and the escrow is closed.",
         "- The seller can refund at any time (e.g. cannot deliver).",
-        "- The buyer can refund only after the deadline has passed."
+        "- The buyer can refund only after the deadline, and only if there is no arbiter."
       ],
       "discriminator": [
         2,
@@ -136,7 +144,7 @@
         {
           "name": "caller",
           "docs": [
-            "Either the seller (any time) or the buyer (after the deadline)."
+            "Either the seller (any time) or the buyer (after the deadline, no arbiter)."
           ],
           "signer": true
         },
@@ -294,6 +302,108 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "resolve",
+      "docs": [
+        "The arbiter settles a dispute: pay the seller (`pay_seller = true`)",
+        "or refund the buyer (`pay_seller = false`). Only works if an arbiter was set."
+      ],
+      "discriminator": [
+        246,
+        150,
+        236,
+        206,
+        108,
+        63,
+        58,
+        10
+      ],
+      "accounts": [
+        {
+          "name": "arbiter",
+          "docs": [
+            "The arbiter named when the escrow was created."
+          ],
+          "signer": true
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "escrow.buyer",
+                "account": "Escrow"
+              },
+              {
+                "kind": "account",
+                "path": "escrow.escrow_id",
+                "account": "Escrow"
+              }
+            ]
+          }
+        },
+        {
+          "name": "buyer",
+          "docs": [
+            "Receives the rent back. Must be the original buyer."
+          ],
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "escrow"
+              }
+            ]
+          }
+        },
+        {
+          "name": "seller_token",
+          "writable": true
+        },
+        {
+          "name": "buyer_token",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "pay_seller",
+          "type": "bool"
+        }
+      ]
     }
   ],
   "accounts": [
@@ -331,6 +441,21 @@
       "code": 6003,
       "name": "TooEarly",
       "msg": "The deadline has not passed yet"
+    },
+    {
+      "code": 6004,
+      "name": "NotArbiter",
+      "msg": "Only the arbiter named for this escrow can resolve it"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidArbiter",
+      "msg": "The arbiter cannot be the buyer or the seller"
+    },
+    {
+      "code": 6006,
+      "name": "ArbiterDecides",
+      "msg": "This escrow has an arbiter, who must decide"
     }
   ],
   "types": [
@@ -366,6 +491,13 @@
           {
             "name": "bump",
             "type": "u8"
+          },
+          {
+            "name": "arbiter",
+            "docs": [
+              "All-zero key means \"no arbiter\"."
+            ],
+            "type": "pubkey"
           }
         ]
       }
