@@ -3,7 +3,14 @@ import type { Program, Idl } from "@coral-xyz/anchor";
 import { useConnection, type AnchorWallet } from "@solana/wallet-adapter-react";
 import { getMint } from "@solana/spl-token";
 import { explorerUrl } from "../config";
-import { fetchMyEscrows, refundEscrow, releaseEscrow, type EscrowRecord } from "../lib/escrow";
+import {
+  fetchMyEscrows,
+  hasArbiter,
+  refundEscrow,
+  releaseEscrow,
+  resolveEscrow,
+  type EscrowRecord,
+} from "../lib/escrow";
 import { errorText, formatDeadline, formatUnits, shortKey } from "../lib/format";
 import type { Status } from "../App";
 
@@ -51,20 +58,22 @@ export function EscrowList({ program, wallet, refreshKey, setStatus, onChanged }
     return () => clearInterval(t);
   }, []);
 
-  const act = async (record: EscrowRecord, kind: "release" | "refund") => {
+  const act = async (record: EscrowRecord, kind: "release" | "refund" | "pay-seller" | "refund-buyer") => {
     const id = record.publicKey.toBase58();
     setBusyId(id);
     try {
       setStatus({ kind: "info", text: "Approve the transaction in your wallet…" });
-      const sig =
-        kind === "release"
-          ? await releaseEscrow(program, wallet.publicKey, record)
-          : await refundEscrow(program, wallet.publicKey, record);
-      setStatus({
-        kind: "ok",
-        text: kind === "release" ? "Released. The seller has been paid." : "Refunded to the buyer.",
-        link: explorerUrl("tx", sig),
-      });
+      let sig: string;
+      if (kind === "release") sig = await releaseEscrow(program, wallet.publicKey, record);
+      else if (kind === "refund") sig = await refundEscrow(program, wallet.publicKey, record);
+      else sig = await resolveEscrow(program, wallet.publicKey, record, kind === "pay-seller");
+      const text = {
+        release: "Released. The seller has been paid.",
+        refund: "Refunded to the buyer.",
+        "pay-seller": "Decision made: the seller has been paid.",
+        "refund-buyer": "Decision made: the buyer has been refunded.",
+      }[kind];
+      setStatus({ kind: "ok", text, link: explorerUrl("tx", sig) });
       onChanged();
     } catch (e) {
       setStatus({ kind: "err", text: errorText(e) });
@@ -93,24 +102,31 @@ export function EscrowList({ program, wallet, refreshKey, setStatus, onChanged }
           const id = r.publicKey.toBase58();
           const isBuyer = a.buyer.equals(wallet.publicKey);
           const isSeller = a.seller.equals(wallet.publicKey);
+          const withArbiter = hasArbiter(a);
+          const isArbiter = withArbiter && a.arbiter.equals(wallet.publicKey);
           const deadline = a.deadline.toNumber();
           const pastDeadline = now >= deadline;
           const dec = decimals[a.mint.toBase58()] ?? 0;
-          const canRefund = isSeller || (isBuyer && pastDeadline);
+          const buyerCanReclaim = isBuyer && !withArbiter && pastDeadline;
+          const canRefund = isSeller || buyerCanReclaim;
+          const role = isArbiter ? "You are the arbiter" : isBuyer ? "You are the buyer" : "You are the seller";
           return (
             <li key={id}>
               <div className="amount">
                 {formatUnits(a.amount, dec)} <span className="muted">tokens</span>
               </div>
               <div className="meta">
-                {isBuyer ? "You are the buyer" : "You are the seller"}
-                {isBuyer && isSeller ? " and the seller" : ""}
+                {role}
                 <br />
                 Buyer {shortKey(a.buyer.toBase58())} → Seller {shortKey(a.seller.toBase58())}
                 <br />
+                Arbiter {withArbiter ? shortKey(a.arbiter.toBase58()) : "none"}
+                <br />
                 Token {shortKey(a.mint.toBase58())}
                 <br />
-                {pastDeadline ? "Deadline passed" : "Buyer can refund after"} {formatDeadline(deadline)}
+                {withArbiter
+                  ? `Deadline ${pastDeadline ? "passed" : "is"} ${formatDeadline(deadline)}; the arbiter decides disputes`
+                  : `${pastDeadline ? "Deadline passed" : "Buyer can refund after"} ${formatDeadline(deadline)}`}
               </div>
               <div className="row">
                 {isBuyer && (
@@ -123,8 +139,21 @@ export function EscrowList({ program, wallet, refreshKey, setStatus, onChanged }
                     {isSeller ? "Cancel and refund buyer" : "Refund me"}
                   </button>
                 )}
-                {isBuyer && !pastDeadline && !isSeller && (
+                {isArbiter && (
+                  <>
+                    <button disabled={busyId === id} onClick={() => act(r, "pay-seller")}>
+                      Decide: pay seller
+                    </button>
+                    <button className="secondary" disabled={busyId === id} onClick={() => act(r, "refund-buyer")}>
+                      Decide: refund buyer
+                    </button>
+                  </>
+                )}
+                {isBuyer && !isSeller && !withArbiter && !pastDeadline && (
                   <span className="muted small-text">Refund unlocks after the deadline.</span>
+                )}
+                {isBuyer && !isSeller && withArbiter && (
+                  <span className="muted small-text">The arbiter decides if you and the seller disagree.</span>
                 )}
                 <a className="small-text" href={explorerUrl("address", id)} target="_blank" rel="noreferrer">
                   Explorer

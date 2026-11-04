@@ -39,6 +39,7 @@ export function CreateEscrowForm({ program, wallet, mint, setMint, setStatus, on
   const [seller, setSeller] = useState("");
   const [amount, setAmount] = useState("");
   const [seconds, setSeconds] = useState(DEADLINES[1].seconds);
+  const [arbiter, setArbiter] = useState("");
   const [busy, setBusy] = useState(false);
 
   const submit = async (e: FormEvent) => {
@@ -49,6 +50,15 @@ export function CreateEscrowForm({ program, wallet, mint, setMint, setStatus, on
     if (!mintKey) return setStatus({ kind: "err", text: "The token address is not a valid Solana address." });
     if (sellerKey.equals(wallet.publicKey))
       return setStatus({ kind: "err", text: "The seller must be a different wallet from yours." });
+
+    let arbiterKey: PublicKey | undefined;
+    if (arbiter.trim() !== "") {
+      const key = toKey(arbiter);
+      if (!key) return setStatus({ kind: "err", text: "The arbiter address is not a valid Solana address." });
+      if (key.equals(wallet.publicKey) || key.equals(sellerKey))
+        return setStatus({ kind: "err", text: "The arbiter must be a different wallet from the buyer and the seller." });
+      arbiterKey = key;
+    }
 
     setBusy(true);
     try {
@@ -68,9 +78,11 @@ export function CreateEscrowForm({ program, wallet, mint, setMint, setStatus, on
         mint: mintKey,
         amount: raw,
         deadline,
+        arbiter: arbiterKey,
       });
       setStatus({ kind: "ok", text: "Tokens are now locked in escrow.", link: explorerUrl("tx", sig) });
       setAmount("");
+      setArbiter("");
       onDone();
     } catch (err) {
       setStatus({ kind: "err", text: errorText(err) });
@@ -96,7 +108,16 @@ export function CreateEscrowForm({ program, wallet, mint, setMint, setStatus, on
           <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="e.g. 25" required />
         </label>
         <label>
-          Buyer can take it back after
+          Arbiter address (optional)
+          <input value={arbiter} onChange={(e) => setArbiter(e.target.value)} placeholder="A neutral third wallet, or leave empty" />
+          <span className="hint">
+            {arbiter.trim() === ""
+              ? "No arbiter: if the deadline passes, you can take the tokens back."
+              : "With an arbiter, you cannot reclaim by waiting. The arbiter decides disputes."}
+          </span>
+        </label>
+        <label>
+          {arbiter.trim() === "" ? "Buyer can take it back after" : "Deadline (arbiter decides after this)"}
           <select value={seconds} onChange={(e) => setSeconds(Number(e.target.value))}>
             {DEADLINES.map((d) => (
               <option key={d.seconds} value={d.seconds}>

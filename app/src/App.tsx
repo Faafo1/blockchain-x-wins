@@ -39,6 +39,7 @@ export default function App() {
           <li><b>Buyer locks tokens</b> for a seller, with a deadline.</li>
           <li><b>Buyer releases</b> the tokens when the goods arrive, and the seller is paid.</li>
           <li><b>Refund:</b> the seller can cancel any time, and the buyer can take the money back after the deadline.</li>
+          <li><b>Disputes (optional):</b> name an arbiter, a neutral third wallet who decides to pay the seller or refund the buyer. With an arbiter, the buyer cannot just wait out the deadline.</li>
         </ol>
       </section>
 

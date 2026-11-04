@@ -6,18 +6,24 @@ A Solana **escrow** built with [Anchor](https://www.anchor-lang.com/). A buyer l
 
 | Instruction | Who calls it | What happens |
 |-------------|--------------|--------------|
-| `create(escrow_id, amount, deadline)` | Buyer | Locks `amount` tokens in a program-owned vault for the seller |
+| `create(escrow_id, amount, deadline, arbiter)` | Buyer | Locks `amount` tokens in a program-owned vault for the seller. `arbiter` is optional (the all-zero key means none) |
 | `release` | Buyer | Confirms delivery: tokens go to the seller, escrow closes |
-| `refund` | Seller (any time) or buyer (after `deadline`) | Tokens go back to the buyer, escrow closes |
+| `refund` | Seller (any time) or buyer (after `deadline`, only if there is no arbiter) | Tokens go back to the buyer, escrow closes |
+| `resolve(pay_seller)` | Arbiter | Settles a dispute: pays the seller or refunds the buyer |
 
 Safety rules built in:
 - Zero amounts and deadlines in the past are rejected.
 - Only the buyer can release funds.
-- The buyer cannot pull funds back before the deadline, so the seller is protected. The seller can always cancel.
-- Strangers cannot refund or release.
+- Without an arbiter, the buyer cannot pull funds back before the deadline, so the seller is protected. The seller can always cancel.
+- With an arbiter, the buyer cannot reclaim by waiting out the deadline: only the buyer (release), the seller (cancel) or the arbiter (decide) can move the funds. The arbiter cannot be the buyer or the seller.
+- Strangers cannot refund, release or resolve.
 - The vault is controlled by the program (a PDA), not by any person.
 
-**Not included yet:** a dispute arbiter (a third party who decides when buyer and seller disagree), partial releases, and a website. These are good next steps.
+**Trade-off:** if an arbiter is named and then disappears, and the buyer and seller never agree, the funds stay locked. Choose an arbiter both sides trust.
+
+**Not included yet:** partial releases and arbiter fees.
+
+A small web app for this program is in [`app/`](app/README.md).
 
 ## Project layout
 

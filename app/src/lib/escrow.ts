@@ -18,7 +18,15 @@ export type EscrowAccount = {
   amount: BN;
   deadline: BN;
   bump: number;
+  /** The all-zero key means "no arbiter". */
+  arbiter: PublicKey;
 };
+
+export const hasArbiter = (a: EscrowAccount): boolean => !a.arbiter.equals(PublicKey.default);
+
+// Position of the `arbiter` field in the account data:
+// 8-byte discriminator + buyer, seller, mint (32 each) + escrow_id, amount, deadline (8 each) + bump (1).
+const ARBITER_OFFSET = 8 + 32 * 3 + 8 * 3 + 1;
 
 export type EscrowRecord = { publicKey: PublicKey; account: EscrowAccount };
 
@@ -50,7 +58,7 @@ const escrowAccounts = (program: Program<Idl>) => (program.account as any).escro
 export async function createEscrow(
   program: Program<Idl>,
   buyer: PublicKey,
-  args: { seller: PublicKey; mint: PublicKey; amount: BN; deadline: BN }
+  args: { seller: PublicKey; mint: PublicKey; amount: BN; deadline: BN; arbiter?: PublicKey }
 ): Promise<string> {
   const buyerToken = getAssociatedTokenAddressSync(args.mint, buyer);
   const info = await program.provider.connection.getAccountInfo(buyerToken);
@@ -61,7 +69,7 @@ export async function createEscrow(
   const vault = vaultPda(escrow);
 
   return program.methods
-    .create(id, args.amount, args.deadline)
+    .create(id, args.amount, args.deadline, args.arbiter ?? PublicKey.default)
     .accounts({
       buyer,
       seller: args.seller,
@@ -116,15 +124,44 @@ export async function refundEscrow(
     .rpc();
 }
 
-/** All open escrows where this wallet is the buyer or the seller. */
+/** The arbiter settles a dispute: pay the seller or refund the buyer. */
+export async function resolveEscrow(
+  program: Program<Idl>,
+  arbiter: PublicKey,
+  record: EscrowRecord,
+  paySeller: boolean
+): Promise<string> {
+  const { buyer, seller, mint } = record.account;
+  const sellerToken = getAssociatedTokenAddressSync(mint, seller);
+  const buyerToken = getAssociatedTokenAddressSync(mint, buyer);
+  return program.methods
+    .resolve(paySeller)
+    .accounts({
+      arbiter,
+      escrow: record.publicKey,
+      buyer,
+      vault: vaultPda(record.publicKey),
+      sellerToken,
+      buyerToken,
+      tokenProgram: TOKEN_PROGRAM_ID,
+    })
+    .preInstructions([
+      createAssociatedTokenAccountIdempotentInstruction(arbiter, sellerToken, seller, mint),
+      createAssociatedTokenAccountIdempotentInstruction(arbiter, buyerToken, buyer, mint),
+    ])
+    .rpc();
+}
+
+/** All open escrows where this wallet is the buyer, the seller or the arbiter. */
 export async function fetchMyEscrows(program: Program<Idl>, me: PublicKey): Promise<EscrowRecord[]> {
   const accounts = escrowAccounts(program);
-  const [asBuyer, asSeller] = (await Promise.all([
+  const [asBuyer, asSeller, asArbiter] = (await Promise.all([
     accounts.all([{ memcmp: { offset: 8, bytes: me.toBase58() } }]),
     accounts.all([{ memcmp: { offset: 8 + 32, bytes: me.toBase58() } }]),
-  ])) as [EscrowRecord[], EscrowRecord[]];
+    accounts.all([{ memcmp: { offset: ARBITER_OFFSET, bytes: me.toBase58() } }]),
+  ])) as [EscrowRecord[], EscrowRecord[], EscrowRecord[]];
 
   const seen = new Map<string, EscrowRecord>();
-  for (const r of [...asBuyer, ...asSeller]) seen.set(r.publicKey.toBase58(), r);
+  for (const r of [...asBuyer, ...asSeller, ...asArbiter]) seen.set(r.publicKey.toBase58(), r);
   return [...seen.values()].sort((a, b) => b.account.escrowId.cmp(a.account.escrowId));
 }
