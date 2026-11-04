@@ -1,5 +1,7 @@
 # BLOCKCHAIN X WINS
 
+[![CI](https://github.com/Faafo1/blockchain-x-wins/actions/workflows/ci.yml/badge.svg)](https://github.com/Faafo1/blockchain-x-wins/actions/workflows/ci.yml)
+
 A Solana **escrow** built with [Anchor](https://www.anchor-lang.com/). A buyer locks SPL tokens (e.g. USDC) for a seller, and the funds are released only when the buyer confirms delivery. It solves the trust problem in online selling: the seller knows the money is locked, and the buyer knows it is not paid until the goods arrive.
 
 ## How it works
