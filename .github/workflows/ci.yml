@@ -78,13 +78,16 @@ jobs:
       - name: Install JavaScript packages
         run: yarn install --frozen-lockfile
 
-      - name: Build (creates the program key)
-        run: anchor build
+      # CI has no program key (it is never committed), so make a throwaway one and
+      # put its id into the code BEFORE building, so the build and the key always match.
+      - name: Create a throwaway program key and sync the id
+        run: |
+          mkdir -p target/deploy
+          solana-keygen new --no-bip39-passphrase --silent --force --outfile target/deploy/escrow-keypair.json
+          anchor keys sync
+          grep -n "declare_id" programs/escrow/src/lib.rs
 
-      - name: Sync the program id with the generated key
-        run: anchor keys sync
-
-      - name: Run tests
+      - name: Build and run tests
         run: anchor test
 
   app-build:
