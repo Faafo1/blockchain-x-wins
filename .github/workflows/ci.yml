@@ -80,15 +80,27 @@ jobs:
 
       # CI has no program key (it is never committed), so make a throwaway one and
       # put its id into the code BEFORE building, so the build and the key always match.
-      - name: Create a throwaway program key and sync the id
+      - name: Create a throwaway program key and write its id into the code
         run: |
           mkdir -p target/deploy
           solana-keygen new --no-bip39-passphrase --silent --force --outfile target/deploy/escrow-keypair.json
-          anchor keys sync
-          grep -n "declare_id" programs/escrow/src/lib.rs
+          ID=$(solana-keygen pubkey target/deploy/escrow-keypair.json)
+          echo "Program id for this run: $ID"
+          sed -i "s/declare_id!(\"[^\"]*\")/declare_id!(\"$ID\")/" programs/escrow/src/lib.rs
+          sed -i "s/^escrow = \"[^\"]*\"/escrow = \"$ID\"/" Anchor.toml
 
-      - name: Build and run tests
-        run: anchor test
+      - name: Build the program
+        run: anchor build
+
+      - name: Show the ids (for debugging)
+        run: |
+          echo "key file:     $(solana-keygen pubkey target/deploy/escrow-keypair.json)"
+          echo "lib.rs:       $(grep -o 'declare_id!("[^"]*")' programs/escrow/src/lib.rs)"
+          echo "Anchor.toml:"; grep -n '^escrow' Anchor.toml
+          echo "IDL address:  $(grep -o '"address": *"[^"]*"' target/idl/escrow.json | head -1)"
+
+      - name: Run tests
+        run: anchor test --skip-build
 
   app-build:
     name: Build the web app
