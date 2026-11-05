@@ -5,6 +5,9 @@ use anchor_spl::token::{self, CloseAccount, Mint, Token, TokenAccount, Transfer}
 // to replace it with the id of your own program keypair.
 declare_id!("BKcdxCfd1bLfwWJJRLyKvyyq4oBQt6WkMibTGYYJR63B");
 
+/// The most an arbiter can charge: 1000 basis points = 10%.
+pub const MAX_ARBITER_FEE_BPS: u16 = 1000;
+
 #[program]
 pub mod escrow {
     use super::*;
@@ -15,12 +18,15 @@ pub mod escrow {
     ///   but only when there is no arbiter.
     /// - `arbiter`: an optional neutral third party who can decide a dispute.
     ///   Pass `Pubkey::default()` (the all-zero key) for no arbiter.
+    /// - `arbiter_fee_bps`: what the arbiter earns for settling a dispute, in basis
+    ///   points of what is left (100 = 1%). At most 1000 (10%), and 0 without an arbiter.
     pub fn create(
         ctx: Context<Create>,
         escrow_id: u64,
         amount: u64,
         deadline: i64,
         arbiter: Pubkey,
+        arbiter_fee_bps: u16,
     ) -> Result<()> {
         require!(amount > 0, EscrowError::ZeroAmount);
         require!(
@@ -33,6 +39,11 @@ pub mod escrow {
                 EscrowError::InvalidArbiter
             );
         }
+        require!(
+            arbiter_fee_bps <= MAX_ARBITER_FEE_BPS
+                && (arbiter_fee_bps == 0 || arbiter != Pubkey::default()),
+            EscrowError::InvalidFee
+        );
 
         let escrow = &mut ctx.accounts.escrow;
         escrow.buyer = ctx.accounts.buyer.key();
@@ -44,6 +55,7 @@ pub mod escrow {
         escrow.bump = ctx.bumps.escrow;
         escrow.arbiter = arbiter;
         escrow.total_amount = amount;
+        escrow.arbiter_fee_bps = arbiter_fee_bps;
 
         let cpi_ctx = CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
@@ -65,6 +77,7 @@ pub mod escrow {
             &ctx.accounts.seller_token,
             &ctx.accounts.buyer.to_account_info(),
             &ctx.accounts.token_program,
+            ctx.accounts.escrow.amount,
         )
     }
 
@@ -118,11 +131,14 @@ pub mod escrow {
             &ctx.accounts.buyer_token,
             &ctx.accounts.buyer.to_account_info(),
             &ctx.accounts.token_program,
+            ctx.accounts.escrow.amount,
         )
     }
 
     /// The arbiter settles a dispute: pay the seller (`pay_seller = true`)
     /// or refund the buyer (`pay_seller = false`). Only works if an arbiter was set.
+    /// The arbiter's fee (if any) is taken from what is left in the vault, and the
+    /// rest goes to the winner.
     pub fn resolve(ctx: Context<Resolve>, pay_seller: bool) -> Result<()> {
         let escrow = &ctx.accounts.escrow;
         require!(
@@ -136,12 +152,25 @@ pub mod escrow {
             &ctx.accounts.buyer_token
         };
 
+        let remaining = escrow.amount;
+        let fee = (u128::from(remaining) * u128::from(escrow.arbiter_fee_bps) / 10_000) as u64;
+        if fee > 0 {
+            transfer_from_vault(
+                &ctx.accounts.escrow,
+                &ctx.accounts.vault,
+                &ctx.accounts.arbiter_token,
+                &ctx.accounts.token_program,
+                fee,
+            )?;
+        }
+
         pay_out_and_close_vault(
             &ctx.accounts.escrow,
             &ctx.accounts.vault,
             destination,
             &ctx.accounts.buyer.to_account_info(),
             &ctx.accounts.token_program,
+            remaining - fee,
         )
     }
 }
@@ -175,7 +204,7 @@ fn transfer_from_vault<'info>(
     )
 }
 
-/// Sends everything still in the vault (`escrow.amount`) to `destination`, then closes
+/// Sends `amount` (everything still in the vault, minus any arbiter fee) to `destination`, then closes
 /// the vault token account and returns its rent to the buyer. The escrow account itself
 /// is closed by Anchor.
 fn pay_out_and_close_vault<'info>(
@@ -184,8 +213,9 @@ fn pay_out_and_close_vault<'info>(
     destination: &Account<'info, TokenAccount>,
     rent_receiver: &AccountInfo<'info>,
     token_program: &Program<'info, Token>,
+    amount: u64,
 ) -> Result<()> {
-    transfer_from_vault(escrow, vault, destination, token_program, escrow.amount)?;
+    transfer_from_vault(escrow, vault, destination, token_program, amount)?;
 
     let buyer_key = escrow.buyer;
     let id_bytes = escrow.escrow_id.to_le_bytes();
@@ -377,6 +407,14 @@ pub struct Resolve<'info> {
     )]
     pub buyer_token: Account<'info, TokenAccount>,
 
+    /// Where the arbiter's fee goes: the arbiter's own token account for this mint.
+    #[account(
+        mut,
+        token::mint = escrow.mint,
+        token::authority = arbiter
+    )]
+    pub arbiter_token: Account<'info, TokenAccount>,
+
     pub token_program: Program<'info, Token>,
 }
 
@@ -396,6 +434,8 @@ pub struct Escrow {
     /// What was originally locked (never changes). New fields go at the end so the
     /// positions of the earlier fields stay the same.
     pub total_amount: u64,
+    /// The arbiter's fee in basis points (100 = 1%), paid when the arbiter resolves.
+    pub arbiter_fee_bps: u16,
 }
 
 #[error_code]
@@ -416,4 +456,6 @@ pub enum EscrowError {
     ArbiterDecides,
     #[msg("A partial release must be more than zero and less than what is left. To pay everything, use release")]
     InvalidPartialAmount,
+    #[msg("The arbiter fee can be at most 10%, and only when there is an arbiter")]
+    InvalidFee,
 }

@@ -22,6 +22,8 @@ export type EscrowAccount = {
   arbiter: PublicKey;
   /** What was originally locked. `amount` is what is still in the vault. */
   totalAmount: BN;
+  /** What the arbiter earns for settling a dispute, in basis points (100 = 1%). */
+  arbiterFeeBps: number;
 };
 
 export const hasArbiter = (a: EscrowAccount): boolean => !a.arbiter.equals(PublicKey.default);
@@ -60,7 +62,7 @@ const escrowAccounts = (program: Program<Idl>) => (program.account as any).escro
 export async function createEscrow(
   program: Program<Idl>,
   buyer: PublicKey,
-  args: { seller: PublicKey; mint: PublicKey; amount: BN; deadline: BN; arbiter?: PublicKey }
+  args: { seller: PublicKey; mint: PublicKey; amount: BN; deadline: BN; arbiter?: PublicKey; feeBps?: number }
 ): Promise<string> {
   const buyerToken = getAssociatedTokenAddressSync(args.mint, buyer);
   const info = await program.provider.connection.getAccountInfo(buyerToken);
@@ -71,7 +73,7 @@ export async function createEscrow(
   const vault = vaultPda(escrow);
 
   return program.methods
-    .create(id, args.amount, args.deadline, args.arbiter ?? PublicKey.default)
+    .create(id, args.amount, args.deadline, args.arbiter ?? PublicKey.default, args.feeBps ?? 0)
     .accounts({
       buyer,
       seller: args.seller,
@@ -158,6 +160,7 @@ export async function resolveEscrow(
   const { buyer, seller, mint } = record.account;
   const sellerToken = getAssociatedTokenAddressSync(mint, seller);
   const buyerToken = getAssociatedTokenAddressSync(mint, buyer);
+  const arbiterToken = getAssociatedTokenAddressSync(mint, arbiter);
   return program.methods
     .resolve(paySeller)
     .accounts({
@@ -167,9 +170,11 @@ export async function resolveEscrow(
       vault: vaultPda(record.publicKey),
       sellerToken,
       buyerToken,
+      arbiterToken,
       tokenProgram: TOKEN_PROGRAM_ID,
     })
     .preInstructions([
+      createAssociatedTokenAccountIdempotentInstruction(arbiter, arbiterToken, arbiter, mint),
       createAssociatedTokenAccountIdempotentInstruction(arbiter, sellerToken, seller, mint),
       createAssociatedTokenAccountIdempotentInstruction(arbiter, buyerToken, buyer, mint),
     ])

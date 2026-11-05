@@ -15,7 +15,9 @@
         "- `deadline` (unix seconds): after this the buyer can take the tokens back,",
         "but only when there is no arbiter.",
         "- `arbiter`: an optional neutral third party who can decide a dispute.",
-        "Pass `Pubkey::default()` (the all-zero key) for no arbiter."
+        "Pass `Pubkey::default()` (the all-zero key) for no arbiter.",
+        "- `arbiter_fee_bps`: what the arbiter earns for settling a dispute, in basis",
+        "points of what is left (100 = 1%). At most 1000 (10%), and 0 without an arbiter."
       ],
       "discriminator": [
         24,
@@ -120,6 +122,10 @@
         {
           "name": "arbiter",
           "type": "pubkey"
+        },
+        {
+          "name": "arbiter_fee_bps",
+          "type": "u16"
         }
       ]
     },
@@ -399,7 +405,9 @@
       "name": "resolve",
       "docs": [
         "The arbiter settles a dispute: pay the seller (`pay_seller = true`)",
-        "or refund the buyer (`pay_seller = false`). Only works if an arbiter was set."
+        "or refund the buyer (`pay_seller = false`). Only works if an arbiter was set.",
+        "The arbiter's fee (if any) is taken from what is left in the vault, and the",
+        "rest goes to the winner."
       ],
       "discriminator": [
         246,
@@ -486,6 +494,13 @@
           "writable": true
         },
         {
+          "name": "arbiter_token",
+          "docs": [
+            "Where the arbiter's fee goes: the arbiter's own token account for this mint."
+          ],
+          "writable": true
+        },
+        {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
@@ -553,6 +568,11 @@
       "code": 6007,
       "name": "InvalidPartialAmount",
       "msg": "A partial release must be more than zero and less than what is left. To pay everything, use release"
+    },
+    {
+      "code": 6008,
+      "name": "InvalidFee",
+      "msg": "The arbiter fee can be at most 10%, and only when there is an arbiter"
     }
   ],
   "types": [
@@ -606,6 +626,13 @@
               "positions of the earlier fields stay the same."
             ],
             "type": "u64"
+          },
+          {
+            "name": "arbiter_fee_bps",
+            "docs": [
+              "The arbiter's fee in basis points (100 = 1%), paid when the arbiter resolves."
+            ],
+            "type": "u16"
           }
         ]
       }

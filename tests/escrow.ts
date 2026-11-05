@@ -26,6 +26,8 @@ describe("escrow", () => {
   let mint: PublicKey;
   let buyerToken: PublicKey;
   let sellerToken: PublicKey;
+  let arbiterToken: PublicKey;
+  let strangerToken: PublicKey;
 
   const farFuture = () => new anchor.BN(Math.floor(Date.now() / 1000) + 3600);
 
@@ -47,11 +49,12 @@ describe("escrow", () => {
     amount: number,
     deadline: anchor.BN,
     arbiterKey: PublicKey = NO_ARBITER,
-    sellerKey: PublicKey = seller.publicKey
+    sellerKey: PublicKey = seller.publicKey,
+    feeBps = 0
   ) => {
     const { escrow, vault } = pdas(id);
     await program.methods
-      .create(new anchor.BN(id), new anchor.BN(amount), deadline, arbiterKey)
+      .create(new anchor.BN(id), new anchor.BN(amount), deadline, arbiterKey, feeBps)
       .accounts({
         buyer: buyer.publicKey,
         seller: sellerKey,
@@ -81,6 +84,12 @@ describe("escrow", () => {
 
   const resolve = (id: number, caller: Keypair, paySeller: boolean) => {
     const { escrow, vault } = pdas(id);
+    // Each caller passes their own token account for the fee.
+    const callerToken = caller.publicKey.equals(arbiter.publicKey)
+      ? arbiterToken
+      : caller.publicKey.equals(seller.publicKey)
+        ? sellerToken
+        : strangerToken;
     return program.methods
       .resolve(paySeller)
       .accounts({
@@ -90,9 +99,36 @@ describe("escrow", () => {
         vault,
         sellerToken,
         buyerToken,
+        arbiterToken: callerToken,
         tokenProgram: TOKEN_PROGRAM_ID,
       } as any)
       .signers([caller])
+      .rpc();
+  };
+
+  const releasePart = (id: number, amount: number, signer?: Keypair) => {
+    const { escrow, vault } = pdas(id);
+    const builder = program.methods.releasePart(new anchor.BN(amount)).accounts({
+      buyer: signer ? signer.publicKey : buyer.publicKey,
+      escrow,
+      vault,
+      sellerToken,
+      tokenProgram: TOKEN_PROGRAM_ID,
+    } as any);
+    return signer ? builder.signers([signer]).rpc() : builder.rpc();
+  };
+
+  const fullRelease = (id: number) => {
+    const { escrow, vault } = pdas(id);
+    return program.methods
+      .release()
+      .accounts({
+        buyer: buyer.publicKey,
+        escrow,
+        vault,
+        sellerToken,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      } as any)
       .rpc();
   };
 
@@ -113,6 +149,8 @@ describe("escrow", () => {
     mint = await createMint(provider.connection, buyer, buyer.publicKey, null, 6);
     buyerToken = await createAccount(provider.connection, buyer, mint, buyer.publicKey);
     sellerToken = await createAccount(provider.connection, buyer, mint, seller.publicKey);
+    arbiterToken = await createAccount(provider.connection, buyer, mint, arbiter.publicKey);
+    strangerToken = await createAccount(provider.connection, buyer, mint, stranger.publicKey);
     await mintTo(provider.connection, buyer, mint, buyerToken, buyer, 10_000_000);
   });
 
@@ -251,32 +289,6 @@ describe("escrow", () => {
   });
 
   describe("partial releases", () => {
-    const releasePart = (id: number, amount: number, signer?: Keypair) => {
-      const { escrow, vault } = pdas(id);
-      const builder = program.methods.releasePart(new anchor.BN(amount)).accounts({
-        buyer: signer ? signer.publicKey : buyer.publicKey,
-        escrow,
-        vault,
-        sellerToken,
-        tokenProgram: TOKEN_PROGRAM_ID,
-      } as any);
-      return signer ? builder.signers([signer]).rpc() : builder.rpc();
-    };
-
-    const fullRelease = (id: number) => {
-      const { escrow, vault } = pdas(id);
-      return program.methods
-        .release()
-        .accounts({
-          buyer: buyer.publicKey,
-          escrow,
-          vault,
-          sellerToken,
-          tokenProgram: TOKEN_PROGRAM_ID,
-        } as any)
-        .rpc();
-    };
-
     it("pays part now and keeps the escrow open with the rest", async () => {
       const sellerBefore = await balance(sellerToken);
       const { escrow, vault } = await create(20, 1_000_000, farFuture());
@@ -333,6 +345,65 @@ describe("escrow", () => {
 
       assert.equal(await balance(sellerToken), sellerBefore + 800_000);
       assert.isNull(await provider.connection.getAccountInfo(escrow));
+    });
+  });
+  describe("arbiter fee", () => {
+    it("pays the arbiter a fee and the rest to the seller", async () => {
+      const sellerBefore = await balance(sellerToken);
+      const arbiterBefore = await balance(arbiterToken);
+      const { escrow } = await create(30, 1_000_000, farFuture(), arbiter.publicKey, seller.publicKey, 500);
+      const state = await program.account.escrow.fetch(escrow);
+      assert.equal(state.arbiterFeeBps, 500);
+
+      await resolve(30, arbiter, true);
+
+      assert.equal(await balance(arbiterToken), arbiterBefore + 50_000);
+      assert.equal(await balance(sellerToken), sellerBefore + 950_000);
+      assert.isNull(await provider.connection.getAccountInfo(escrow));
+    });
+
+    it("takes the fee when the buyer is refunded too", async () => {
+      const arbiterBefore = await balance(arbiterToken);
+      const buyerBefore = await balance(buyerToken);
+      await create(31, 1_000_000, farFuture(), arbiter.publicKey, seller.publicKey, 500);
+
+      await resolve(31, arbiter, false);
+
+      assert.equal(await balance(arbiterToken), arbiterBefore + 50_000);
+      assert.equal(await balance(buyerToken), buyerBefore - 50_000);
+    });
+
+    it("charges the fee only on what is left after a partial release", async () => {
+      const sellerBefore = await balance(sellerToken);
+      const arbiterBefore = await balance(arbiterToken);
+      await create(32, 800_000, farFuture(), arbiter.publicKey, seller.publicKey, 1000);
+      await releasePart(32, 300_000);
+
+      await resolve(32, arbiter, true);
+
+      // 500_000 was left, so the fee is 50_000 and the seller gets 450_000 on top of the 300_000
+      assert.equal(await balance(arbiterToken), arbiterBefore + 50_000);
+      assert.equal(await balance(sellerToken), sellerBefore + 750_000);
+    });
+
+    it("pays no fee when the buyer releases or the seller cancels", async () => {
+      const arbiterBefore = await balance(arbiterToken);
+      await create(33, 400_000, farFuture(), arbiter.publicKey, seller.publicKey, 500);
+      await fullRelease(33);
+      await create(34, 400_000, farFuture(), arbiter.publicKey, seller.publicKey, 500);
+      await refund(34, seller, [seller]);
+      assert.equal(await balance(arbiterToken), arbiterBefore);
+    });
+
+    it("rejects a fee above 10%, or a fee with no arbiter", async () => {
+      await expectFail(
+        () => create(35, 1000, farFuture(), arbiter.publicKey, seller.publicKey, 1001),
+        "InvalidFee"
+      );
+      await expectFail(
+        () => create(36, 1000, farFuture(), NO_ARBITER, seller.publicKey, 100),
+        "InvalidFee"
+      );
     });
   });
 });

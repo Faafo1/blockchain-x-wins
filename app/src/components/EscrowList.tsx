@@ -158,6 +158,7 @@ export function EscrowList({ program, wallet, refreshKey, setStatus, onChanged }
                 Buyer {shortKey(a.buyer.toBase58())} → Seller {shortKey(a.seller.toBase58())}
                 <br />
                 Arbiter {withArbiter ? shortKey(a.arbiter.toBase58()) : "none"}
+                {withArbiter && a.arbiterFeeBps > 0 ? ` (fee ${a.arbiterFeeBps / 100}% if they settle)` : ""}
                 <br />
                 Token {shortKey(a.mint.toBase58())}
                 <br />

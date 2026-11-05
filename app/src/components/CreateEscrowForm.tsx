@@ -40,6 +40,7 @@ export function CreateEscrowForm({ program, wallet, mint, setMint, setStatus, on
   const [amount, setAmount] = useState("");
   const [seconds, setSeconds] = useState(DEADLINES[1].seconds);
   const [arbiter, setArbiter] = useState("");
+  const [fee, setFee] = useState("");
   const [busy, setBusy] = useState(false);
 
   const submit = async (e: FormEvent) => {
@@ -58,6 +59,14 @@ export function CreateEscrowForm({ program, wallet, mint, setMint, setStatus, on
       if (key.equals(wallet.publicKey) || key.equals(sellerKey))
         return setStatus({ kind: "err", text: "The arbiter must be a different wallet from the buyer and the seller." });
       arbiterKey = key;
+    }
+
+    let feeBps = 0;
+    if (arbiterKey && fee.trim() !== "") {
+      const pct = Number(fee);
+      if (!Number.isFinite(pct) || pct < 0 || pct > 10)
+        return setStatus({ kind: "err", text: "The arbiter fee must be a number from 0 to 10 (percent)." });
+      feeBps = Math.round(pct * 100);
     }
 
     setBusy(true);
@@ -79,10 +88,12 @@ export function CreateEscrowForm({ program, wallet, mint, setMint, setStatus, on
         amount: raw,
         deadline,
         arbiter: arbiterKey,
+        feeBps,
       });
       setStatus({ kind: "ok", text: "Tokens are now locked in escrow.", link: explorerUrl("tx", sig) });
       setAmount("");
       setArbiter("");
+      setFee("");
       onDone();
     } catch (err) {
       setStatus({ kind: "err", text: errorText(err) });
@@ -116,6 +127,13 @@ export function CreateEscrowForm({ program, wallet, mint, setMint, setStatus, on
               : "With an arbiter, you cannot reclaim by waiting. The arbiter decides disputes."}
           </span>
         </label>
+        {arbiter.trim() !== "" && (
+          <label>
+            Arbiter fee in % (optional, up to 10)
+            <input value={fee} onChange={(e) => setFee(e.target.value)} inputMode="decimal" placeholder="e.g. 2" />
+            <span className="hint">Paid to the arbiter from what is left, only if they have to settle a dispute.</span>
+          </label>
+        )}
         <label>
           {arbiter.trim() === "" ? "Buyer can take it back after" : "Deadline (arbiter decides after this)"}
           <select value={seconds} onChange={(e) => setSeconds(Number(e.target.value))}>

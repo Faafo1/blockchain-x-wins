@@ -12,7 +12,7 @@ A Solana **escrow** built with [Anchor](https://www.anchor-lang.com/). A buyer l
 
 - Lock tokens for a seller with a deadline.
 - Release to the seller (all at once, or in parts), or refund the buyer.
-- Optional arbiter who can pay the seller or refund the buyer.
+- Optional arbiter who can pay the seller or refund the buyer, for an agreed fee of up to 10%.
 - A React web app with wallet connect (Phantom and other Solana wallets).
 - 14 automated tests, run on every push by GitHub Actions.
 
@@ -29,11 +29,11 @@ A Solana **escrow** built with [Anchor](https://www.anchor-lang.com/). A buyer l
 
 | Instruction | Who calls it | What happens |
 |-------------|--------------|--------------|
-| `create(escrow_id, amount, deadline, arbiter)` | Buyer | Locks `amount` tokens in a program-owned vault for the seller. `arbiter` is optional (the all-zero key means none) |
+| `create(escrow_id, amount, deadline, arbiter, arbiter_fee_bps)` | Buyer | Locks `amount` tokens in a program-owned vault for the seller. `arbiter` is optional (the all-zero key means none). `arbiter_fee_bps` is the arbiter's fee, at most 1000 (10%) and 0 without an arbiter |
 | `release` | Buyer | Confirms delivery: tokens go to the seller, escrow closes |
 | `release_part(amount)` | Buyer | Pays the seller part of what is left (milestones). The escrow stays open |
 | `refund` | Seller (any time) or buyer (after `deadline`, only if there is no arbiter) | Tokens go back to the buyer, escrow closes |
-| `resolve(pay_seller)` | Arbiter | Settles a dispute: pays the seller or refunds the buyer |
+| `resolve(pay_seller)` | Arbiter | Settles a dispute: pays the seller or refunds the buyer. The arbiter's fee comes out of what is left first |
 
 Safety rules built in:
 - Zero amounts and deadlines in the past are rejected.
@@ -45,7 +45,7 @@ Safety rules built in:
 
 **Trade-off:** if an arbiter is named and then disappears, and the buyer and seller never agree, the funds stay locked. Choose an arbiter both sides trust.
 
-**Not included yet:** arbiter fees.
+**Not included yet:** nothing planned. Ideas: support for Token-2022 tokens, an audit.
 
 ## Project layout
 
