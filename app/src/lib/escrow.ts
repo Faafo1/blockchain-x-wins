@@ -20,6 +20,8 @@ export type EscrowAccount = {
   bump: number;
   /** The all-zero key means "no arbiter". */
   arbiter: PublicKey;
+  /** What was originally locked. `amount` is what is still in the vault. */
+  totalAmount: BN;
 };
 
 export const hasArbiter = (a: EscrowAccount): boolean => !a.arbiter.equals(PublicKey.default);
@@ -92,6 +94,28 @@ export async function releaseEscrow(
   const sellerToken = getAssociatedTokenAddressSync(mint, seller);
   return program.methods
     .release()
+    .accounts({
+      buyer,
+      escrow: record.publicKey,
+      vault: vaultPda(record.publicKey),
+      sellerToken,
+      tokenProgram: TOKEN_PROGRAM_ID,
+    })
+    .preInstructions([createAssociatedTokenAccountIdempotentInstruction(buyer, sellerToken, seller, mint)])
+    .rpc();
+}
+
+/** The buyer pays the seller part of what is left. The escrow stays open. */
+export async function releasePartEscrow(
+  program: Program<Idl>,
+  buyer: PublicKey,
+  record: EscrowRecord,
+  amount: BN
+): Promise<string> {
+  const { seller, mint } = record.account;
+  const sellerToken = getAssociatedTokenAddressSync(mint, seller);
+  return program.methods
+    .releasePart(amount)
     .accounts({
       buyer,
       escrow: record.publicKey,

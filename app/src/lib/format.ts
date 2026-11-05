@@ -35,6 +35,7 @@ const FRIENDLY: Array<[RegExp, string]> = [
   [/TooEarly|0x1773/, "The deadline has not passed yet, so the buyer cannot refund."],
   [/NotArbiter|0x1774/, "Only the arbiter named for this deal can settle it."],
   [/InvalidArbiter|0x1775/, "The arbiter must be a different wallet from the buyer and the seller."],
+  [/InvalidPartialAmount|0x1777/, "Enter an amount above zero and below what is left. To pay everything, use Release to seller."],
   [/ArbiterDecides|0x1776/, "This deal has an arbiter, so the buyer cannot reclaim by waiting. The arbiter decides."],
   [/insufficient funds|0x1\b/i, "Not enough tokens or SOL in your wallet for this."],
   [/Attempt to debit an account but found no record|AccountNotFound/i, "Your wallet has no SOL on this network yet."],

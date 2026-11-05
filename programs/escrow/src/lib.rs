@@ -43,6 +43,7 @@ pub mod escrow {
         escrow.deadline = deadline;
         escrow.bump = ctx.bumps.escrow;
         escrow.arbiter = arbiter;
+        escrow.total_amount = amount;
 
         let cpi_ctx = CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
@@ -55,7 +56,8 @@ pub mod escrow {
         token::transfer(cpi_ctx, amount)
     }
 
-    /// The buyer confirms delivery: tokens go to the seller and the escrow is closed.
+    /// The buyer confirms delivery: everything still in the vault goes to the seller
+    /// and the escrow is closed.
     pub fn release(ctx: Context<Release>) -> Result<()> {
         pay_out_and_close_vault(
             &ctx.accounts.escrow,
@@ -64,6 +66,30 @@ pub mod escrow {
             &ctx.accounts.buyer.to_account_info(),
             &ctx.accounts.token_program,
         )
+    }
+
+    /// The buyer pays the seller part of what is left (for example a milestone).
+    /// The escrow stays open with the rest. To pay everything, use `release`.
+    pub fn release_part(ctx: Context<ReleasePart>, amount: u64) -> Result<()> {
+        let remaining = ctx.accounts.escrow.amount;
+        require!(
+            amount > 0 && amount < remaining,
+            EscrowError::InvalidPartialAmount
+        );
+
+        transfer_from_vault(
+            &ctx.accounts.escrow,
+            &ctx.accounts.vault,
+            &ctx.accounts.seller_token,
+            &ctx.accounts.token_program,
+            amount,
+        )?;
+
+        let escrow = &mut ctx.accounts.escrow;
+        escrow.amount = remaining
+            .checked_sub(amount)
+            .ok_or(EscrowError::InvalidPartialAmount)?;
+        Ok(())
     }
 
     /// Tokens go back to the buyer and the escrow is closed.
@@ -120,14 +146,14 @@ pub mod escrow {
     }
 }
 
-/// Sends the escrowed tokens to `destination`, then closes the vault token account
-/// and returns its rent to the buyer. The escrow account itself is closed by Anchor.
-fn pay_out_and_close_vault<'info>(
+/// Moves `amount` tokens out of the vault to `destination`. The escrow account
+/// (a PDA) signs for the vault.
+fn transfer_from_vault<'info>(
     escrow: &Account<'info, Escrow>,
     vault: &Account<'info, TokenAccount>,
     destination: &Account<'info, TokenAccount>,
-    rent_receiver: &AccountInfo<'info>,
     token_program: &Program<'info, Token>,
+    amount: u64,
 ) -> Result<()> {
     let buyer_key = escrow.buyer;
     let id_bytes = escrow.escrow_id.to_le_bytes();
@@ -145,8 +171,27 @@ fn pay_out_and_close_vault<'info>(
             },
             signer_seeds,
         ),
-        escrow.amount,
-    )?;
+        amount,
+    )
+}
+
+/// Sends everything still in the vault (`escrow.amount`) to `destination`, then closes
+/// the vault token account and returns its rent to the buyer. The escrow account itself
+/// is closed by Anchor.
+fn pay_out_and_close_vault<'info>(
+    escrow: &Account<'info, Escrow>,
+    vault: &Account<'info, TokenAccount>,
+    destination: &Account<'info, TokenAccount>,
+    rent_receiver: &AccountInfo<'info>,
+    token_program: &Program<'info, Token>,
+) -> Result<()> {
+    transfer_from_vault(escrow, vault, destination, token_program, escrow.amount)?;
+
+    let buyer_key = escrow.buyer;
+    let id_bytes = escrow.escrow_id.to_le_bytes();
+    let bump = [escrow.bump];
+    let seeds: &[&[u8]] = &[b"escrow", buyer_key.as_ref(), &id_bytes, &bump];
+    let signer_seeds = &[seeds];
 
     token::close_account(CpiContext::new_with_signer(
         token_program.to_account_info(),
@@ -208,6 +253,35 @@ pub struct Release<'info> {
     #[account(
         mut,
         close = buyer,
+        has_one = buyer,
+        seeds = [b"escrow", escrow.buyer.as_ref(), &escrow.escrow_id.to_le_bytes()],
+        bump = escrow.bump
+    )]
+    pub escrow: Account<'info, Escrow>,
+
+    #[account(
+        mut,
+        seeds = [b"vault", escrow.key().as_ref()],
+        bump
+    )]
+    pub vault: Account<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        token::mint = escrow.mint,
+        token::authority = escrow.seller
+    )]
+    pub seller_token: Account<'info, TokenAccount>,
+
+    pub token_program: Program<'info, Token>,
+}
+
+#[derive(Accounts)]
+pub struct ReleasePart<'info> {
+    pub buyer: Signer<'info>,
+
+    #[account(
+        mut,
         has_one = buyer,
         seeds = [b"escrow", escrow.buyer.as_ref(), &escrow.escrow_id.to_le_bytes()],
         bump = escrow.bump
@@ -313,11 +387,15 @@ pub struct Escrow {
     pub seller: Pubkey,
     pub mint: Pubkey,
     pub escrow_id: u64,
+    /// Tokens still in the vault. Goes down as the buyer makes partial releases.
     pub amount: u64,
     pub deadline: i64,
     pub bump: u8,
     /// All-zero key means "no arbiter".
     pub arbiter: Pubkey,
+    /// What was originally locked (never changes). New fields go at the end so the
+    /// positions of the earlier fields stay the same.
+    pub total_amount: u64,
 }
 
 #[error_code]
@@ -336,4 +414,6 @@ pub enum EscrowError {
     InvalidArbiter,
     #[msg("This escrow has an arbiter, who must decide")]
     ArbiterDecides,
+    #[msg("A partial release must be more than zero and less than what is left. To pay everything, use release")]
+    InvalidPartialAmount,
 }

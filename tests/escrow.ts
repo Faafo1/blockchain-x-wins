@@ -249,4 +249,90 @@ describe("escrow", () => {
       assert.equal(await balance(buyerToken), buyerBefore + 100_000);
     });
   });
+
+  describe("partial releases", () => {
+    const releasePart = (id: number, amount: number, signer?: Keypair) => {
+      const { escrow, vault } = pdas(id);
+      const builder = program.methods.releasePart(new anchor.BN(amount)).accounts({
+        buyer: signer ? signer.publicKey : buyer.publicKey,
+        escrow,
+        vault,
+        sellerToken,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      } as any);
+      return signer ? builder.signers([signer]).rpc() : builder.rpc();
+    };
+
+    const fullRelease = (id: number) => {
+      const { escrow, vault } = pdas(id);
+      return program.methods
+        .release()
+        .accounts({
+          buyer: buyer.publicKey,
+          escrow,
+          vault,
+          sellerToken,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        } as any)
+        .rpc();
+    };
+
+    it("pays part now and keeps the escrow open with the rest", async () => {
+      const sellerBefore = await balance(sellerToken);
+      const { escrow, vault } = await create(20, 1_000_000, farFuture());
+
+      await releasePart(20, 400_000);
+
+      assert.equal(await balance(sellerToken), sellerBefore + 400_000);
+      assert.equal(await balance(vault), 600_000);
+      const state = await program.account.escrow.fetch(escrow);
+      assert.equal(state.amount.toNumber(), 600_000);
+      assert.equal(state.totalAmount.toNumber(), 1_000_000);
+    });
+
+    it("lets the buyer release the rest in full afterwards", async () => {
+      const sellerBefore = await balance(sellerToken);
+      const { escrow, vault } = pdas(20);
+
+      await fullRelease(20);
+
+      assert.equal(await balance(sellerToken), sellerBefore + 600_000);
+      assert.isNull(await provider.connection.getAccountInfo(escrow));
+      assert.isNull(await provider.connection.getAccountInfo(vault));
+    });
+
+    it("rejects zero, everything that is left, and more than is left", async () => {
+      await create(21, 500_000, farFuture());
+      await expectFail(() => releasePart(21, 0), "InvalidPartialAmount");
+      await expectFail(() => releasePart(21, 500_000), "InvalidPartialAmount");
+      await expectFail(() => releasePart(21, 900_000), "InvalidPartialAmount");
+    });
+
+    it("does not let anyone but the buyer release part", async () => {
+      await expectFail(() => releasePart(21, 100_000, stranger), "ConstraintHasOne");
+      await expectFail(() => releasePart(21, 100_000, seller), "ConstraintHasOne");
+    });
+
+    it("refunds only what is left after a partial release", async () => {
+      const buyerBefore = await balance(buyerToken);
+      await releasePart(21, 200_000);
+
+      await refund(21, seller, [seller]);
+
+      // the buyer paid 500_000, 200_000 went to the seller, 300_000 comes back
+      assert.equal(await balance(buyerToken), buyerBefore + 300_000);
+    });
+
+    it("lets the arbiter settle only what is left", async () => {
+      const sellerBefore = await balance(sellerToken);
+      const { escrow } = await create(22, 800_000, farFuture(), arbiter.publicKey);
+      await releasePart(22, 300_000);
+      assert.equal(await balance(sellerToken), sellerBefore + 300_000);
+
+      await resolve(22, arbiter, true);
+
+      assert.equal(await balance(sellerToken), sellerBefore + 800_000);
+      assert.isNull(await provider.connection.getAccountInfo(escrow));
+    });
+  });
 });

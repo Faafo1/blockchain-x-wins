@@ -6,12 +6,12 @@ A Solana **escrow** built with [Anchor](https://www.anchor-lang.com/). A buyer l
 
 ![How an escrow deal flows: the buyer locks tokens in a vault, then releases them to the seller or gets a refund; an optional arbiter decides disputes](docs/flow.svg)
 
-![The web app](docs/app.png)
+<!-- To add a screenshot of the app: save it as docs/app.png, then replace this line with: ![The web app](docs/app.png) -->
 
 ## Features
 
 - Lock tokens for a seller with a deadline.
-- Release to the seller, or refund the buyer.
+- Release to the seller (all at once, or in parts), or refund the buyer.
 - Optional arbiter who can pay the seller or refund the buyer.
 - A React web app with wallet connect (Phantom and other Solana wallets).
 - 14 automated tests, run on every push by GitHub Actions.
@@ -31,6 +31,7 @@ A Solana **escrow** built with [Anchor](https://www.anchor-lang.com/). A buyer l
 |-------------|--------------|--------------|
 | `create(escrow_id, amount, deadline, arbiter)` | Buyer | Locks `amount` tokens in a program-owned vault for the seller. `arbiter` is optional (the all-zero key means none) |
 | `release` | Buyer | Confirms delivery: tokens go to the seller, escrow closes |
+| `release_part(amount)` | Buyer | Pays the seller part of what is left (milestones). The escrow stays open |
 | `refund` | Seller (any time) or buyer (after `deadline`, only if there is no arbiter) | Tokens go back to the buyer, escrow closes |
 | `resolve(pay_seller)` | Arbiter | Settles a dispute: pays the seller or refunds the buyer |
 
@@ -44,7 +45,7 @@ Safety rules built in:
 
 **Trade-off:** if an arbiter is named and then disappears, and the buyer and seller never agree, the funds stay locked. Choose an arbiter both sides trust.
 
-**Not included yet:** partial releases and arbiter fees.
+**Not included yet:** arbiter fees.
 
 ## Project layout
 

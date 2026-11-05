@@ -220,7 +220,8 @@
     {
       "name": "release",
       "docs": [
-        "The buyer confirms delivery: tokens go to the seller and the escrow is closed."
+        "The buyer confirms delivery: everything still in the vault goes to the seller",
+        "and the escrow is closed."
       ],
       "discriminator": [
         253,
@@ -302,6 +303,97 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "release_part",
+      "docs": [
+        "The buyer pays the seller part of what is left (for example a milestone).",
+        "The escrow stays open with the rest. To pay everything, use `release`."
+      ],
+      "discriminator": [
+        152,
+        138,
+        193,
+        139,
+        227,
+        26,
+        193,
+        239
+      ],
+      "accounts": [
+        {
+          "name": "buyer",
+          "signer": true,
+          "relations": [
+            "escrow"
+          ]
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "escrow.buyer",
+                "account": "Escrow"
+              },
+              {
+                "kind": "account",
+                "path": "escrow.escrow_id",
+                "account": "Escrow"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "escrow"
+              }
+            ]
+          }
+        },
+        {
+          "name": "seller_token",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
     },
     {
       "name": "resolve",
@@ -456,6 +548,11 @@
       "code": 6006,
       "name": "ArbiterDecides",
       "msg": "This escrow has an arbiter, who must decide"
+    },
+    {
+      "code": 6007,
+      "name": "InvalidPartialAmount",
+      "msg": "A partial release must be more than zero and less than what is left. To pay everything, use release"
     }
   ],
   "types": [
@@ -482,6 +579,9 @@
           },
           {
             "name": "amount",
+            "docs": [
+              "Tokens still in the vault. Goes down as the buyer makes partial releases."
+            ],
             "type": "u64"
           },
           {
@@ -498,6 +598,14 @@
               "All-zero key means \"no arbiter\"."
             ],
             "type": "pubkey"
+          },
+          {
+            "name": "total_amount",
+            "docs": [
+              "What was originally locked (never changes). New fields go at the end so the",
+              "positions of the earlier fields stay the same."
+            ],
+            "type": "u64"
           }
         ]
       }

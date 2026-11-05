@@ -84,6 +84,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 .head-row h2 { margin: 0; }
 .muted { color: var(--muted); }
 .hint { font-size: 0.78rem; color: var(--muted); }
+input.part { width: auto; flex: 1 1 140px; min-width: 120px; }
 .small-text { font-size: 0.8rem; }
 
 .status { position: relative; padding: 12px 40px 12px 14px; border-radius: 10px; margin-bottom: 16px; }

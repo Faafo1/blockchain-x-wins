@@ -8,10 +8,11 @@ import {
   hasArbiter,
   refundEscrow,
   releaseEscrow,
+  releasePartEscrow,
   resolveEscrow,
   type EscrowRecord,
 } from "../lib/escrow";
-import { errorText, formatDeadline, formatUnits, shortKey } from "../lib/format";
+import { errorText, formatDeadline, formatUnits, parseUnits, shortKey } from "../lib/format";
 import type { Status } from "../App";
 
 type Props = {
@@ -27,6 +28,7 @@ export function EscrowList({ program, wallet, refreshKey, setStatus, onChanged }
   const [items, setItems] = useState<EscrowRecord[] | null>(null);
   const [decimals, setDecimals] = useState<Record<string, number>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [partial, setPartial] = useState<Record<string, string>>({});
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
 
   const load = useCallback(async () => {
@@ -82,6 +84,35 @@ export function EscrowList({ program, wallet, refreshKey, setStatus, onChanged }
     }
   };
 
+  const payPart = async (record: EscrowRecord) => {
+    const id = record.publicKey.toBase58();
+    const dec = decimals[record.account.mint.toBase58()] ?? 0;
+    const raw = parseUnits(partial[id] ?? "", dec);
+    if (!raw || raw.gte(record.account.amount)) {
+      setStatus({
+        kind: "err",
+        text: "Enter an amount above zero and below what is left. To pay everything, use Release to seller.",
+      });
+      return;
+    }
+    setBusyId(id);
+    try {
+      setStatus({ kind: "info", text: "Approve the transaction in your wallet…" });
+      const sig = await releasePartEscrow(program, wallet.publicKey, record, raw);
+      setPartial((p) => ({ ...p, [id]: "" }));
+      setStatus({
+        kind: "ok",
+        text: `Paid ${formatUnits(raw, dec)} to the seller. The rest stays locked.`,
+        link: explorerUrl("tx", sig),
+      });
+      onChanged();
+    } catch (e) {
+      setStatus({ kind: "err", text: errorText(e) });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
     <section className="card">
       <div className="head-row">
@@ -114,6 +145,12 @@ export function EscrowList({ program, wallet, refreshKey, setStatus, onChanged }
             <li key={id}>
               <div className="amount">
                 {formatUnits(a.amount, dec)} <span className="muted">tokens</span>
+                {!a.amount.eq(a.totalAmount) && (
+                  <span className="muted small-text">
+                    {" "}
+                    left of {formatUnits(a.totalAmount, dec)} (paid so far: {formatUnits(a.totalAmount.sub(a.amount), dec)})
+                  </span>
+                )}
               </div>
               <div className="meta">
                 {role}
@@ -128,10 +165,25 @@ export function EscrowList({ program, wallet, refreshKey, setStatus, onChanged }
                   ? `Deadline ${pastDeadline ? "passed" : "is"} ${formatDeadline(deadline)}; the arbiter decides disputes`
                   : `${pastDeadline ? "Deadline passed" : "Buyer can refund after"} ${formatDeadline(deadline)}`}
               </div>
+              {isBuyer && (
+                <div className="row">
+                  <input
+                    className="part"
+                    value={partial[id] ?? ""}
+                    onChange={(e) => setPartial((p) => ({ ...p, [id]: e.target.value }))}
+                    inputMode="decimal"
+                    placeholder="Amount to pay now"
+                    aria-label="Amount to pay the seller now"
+                  />
+                  <button className="secondary" disabled={busyId === id} onClick={() => payPart(r)}>
+                    Pay part now
+                  </button>
+                </div>
+              )}
               <div className="row">
                 {isBuyer && (
                   <button disabled={busyId === id} onClick={() => act(r, "release")}>
-                    Release to seller
+                    Release all to seller
                   </button>
                 )}
                 {canRefund && (
