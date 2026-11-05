@@ -6,7 +6,7 @@ A Solana **escrow** built with [Anchor](https://www.anchor-lang.com/). A buyer l
 
 ![How an escrow deal flows: the buyer locks tokens in a vault, then releases them to the seller or gets a refund; an optional arbiter decides disputes](docs/flow.svg)
 
-<!-- To add a screenshot of the app: save it as docs/app.png, then replace this line with: ![The web app](docs/app.png) -->
+![The web app](docs/app.png)
 
 ## Features
 
