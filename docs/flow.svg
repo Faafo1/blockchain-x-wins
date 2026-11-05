@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 400" width="900" height="400" role="img" aria-labelledby="t d" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <title id="t">How an escrow deal flows</title>
+  <desc id="d">The buyer locks tokens in a vault. The buyer releases them to the seller, or they are refunded to the buyer. An optional arbiter can decide a dispute.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#334155"/>
+    </marker>
+  </defs>
+
+  <rect width="900" height="400" rx="16" fill="#f6f7f9"/>
+
+  <!-- Buyer -->
+  <rect x="50" y="60" width="200" height="76" rx="12" fill="#ffffff" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="150" y="93" text-anchor="middle" font-size="20" font-weight="700" fill="#0f172a">Buyer</text>
+  <text x="150" y="117" text-anchor="middle" font-size="14" fill="#475569">pays and confirms</text>
+
+  <!-- Vault -->
+  <rect x="350" y="60" width="200" height="76" rx="12" fill="#0f766e" stroke="#0f766e" stroke-width="2"/>
+  <text x="450" y="93" text-anchor="middle" font-size="20" font-weight="700" fill="#ffffff">Escrow vault</text>
+  <text x="450" y="117" text-anchor="middle" font-size="14" fill="#d1fae5">held by the program</text>
+
+  <!-- Seller -->
+  <rect x="650" y="60" width="200" height="76" rx="12" fill="#ffffff" stroke="#cbd5e1" stroke-width="2"/>
+  <text x="750" y="93" text-anchor="middle" font-size="20" font-weight="700" fill="#0f172a">Seller</text>
+  <text x="750" y="117" text-anchor="middle" font-size="14" fill="#475569">delivers the goods</text>
+
+  <!-- Arbiter -->
+  <rect x="350" y="290" width="200" height="76" rx="12" fill="#ffffff" stroke="#94a3b8" stroke-width="2" stroke-dasharray="7 5"/>
+  <text x="450" y="323" text-anchor="middle" font-size="20" font-weight="700" fill="#0f172a">Arbiter</text>
+  <text x="450" y="347" text-anchor="middle" font-size="14" fill="#475569">optional, neutral third party</text>
+
+  <!-- 1. Lock -->
+  <line x1="252" y1="98" x2="348" y2="98" stroke="#334155" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="300" y="86" text-anchor="middle" font-size="15" font-weight="700" fill="#0f172a">1. Lock</text>
+
+  <!-- 2. Release -->
+  <line x1="552" y1="98" x2="648" y2="98" stroke="#334155" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="600" y="86" text-anchor="middle" font-size="15" font-weight="700" fill="#0f172a">2. Release</text>
+
+  <!-- Refund (curved back to buyer) -->
+  <path d="M 400 138 C 400 215, 150 215, 150 138" fill="none" stroke="#334155" stroke-width="2.5" stroke-dasharray="2 0" marker-end="url(#arrow)"/>
+  <text x="270" y="243" text-anchor="middle" font-size="15" font-weight="700" fill="#0f172a">Or refund</text>
+  <text x="270" y="263" text-anchor="middle" font-size="13" fill="#475569">seller any time, or buyer after the</text>
+  <text x="270" y="281" text-anchor="middle" font-size="13" fill="#475569">deadline (only without an arbiter)</text>
+
+  <!-- Arbiter decides -->
+  <line x1="450" y1="288" x2="450" y2="140" stroke="#334155" stroke-width="2.5" stroke-dasharray="7 5" marker-end="url(#arrow)"/>
+  <text x="468" y="205" font-size="15" font-weight="700" fill="#0f172a">Dispute?</text>
+  <text x="468" y="225" font-size="13" fill="#475569">The arbiter pays the seller</text>
+  <text x="468" y="243" font-size="13" fill="#475569">or refunds the buyer</text>
+</svg>
